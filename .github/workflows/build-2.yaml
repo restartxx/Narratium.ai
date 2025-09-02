@@ -1,62 +1,78 @@
 # Nome do Workflow
-name: Build and Package (ARM64 & Android PWA)
+name: Build and Package (Linux aarch64)
 
 # Gatilho manual
 on:
   workflow_dispatch:
 
 jobs:
-  # --- JOB 1: Compilar para Linux ARM64 ---
+  # --- JOB: Compilar para Linux aarch64 ---
   build-linux-arm64:
-    name: Build Linux (arm64/aarch64)
+    name: Build Linux (aarch64)
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v3
+
     - name: Setup Node.js
       uses: actions/setup-node@v3
       with:
         node-version: '20'
+
     - name: Instalar dependências de compilação do Linux
       run: |
         sudo apt-get update
         sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+    
     - name: Setup Rust Cross-Compile Target (aarch64)
       run: rustup target add aarch64-unknown-linux-gnu
+
     - name: Install pnpm
       uses: pnpm/action-setup@v2
       with:
         version: 8
         run_install: false
+
     - name: Get pnpm store directory
       shell: bash
       run: |
         echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-    - uses: actions/cache@v3
+
+    - name: Setup pnpm cache
+      uses: actions/cache@v3
       with:
         path: ${{ env.STORE_PATH }}
         key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
         restore-keys: |
           ${{ runner.os }}-pnpm-store-
+
     - name: Install dependencies
       run: pnpm install
+
     - name: Build Next.js app
-      run: pnpm build # Este comando também gera o diretório 'out'
+      run: pnpm build
+
     - name: Install Pake CLI
       run: npm install -g pake-cli
+
     - name: Build with Pake (Linux aarch64)
       run: pake out/index.html --name Narratium --icon public/icon.png --target aarch64-unknown-linux-gnu
+
     - name: Package artifacts (Linux aarch64)
       run: |
         mkdir -p dist
+        # Procura por um arquivo .deb ou .AppImage gerado
         ARTIFACT_FILE=$(find . -name "Narratium*.deb" -o -name "Narratium*.AppImage" | head -n 1)
         if [ -z "$ARTIFACT_FILE" ]; then
           echo "Erro: Arquivo .deb ou .AppImage não encontrado."
-          ls -R
+          ls -R # Lista todos os arquivos para depuração
           exit 1
         fi
         echo "Artefato encontrado: $ARTIFACT_FILE"
+        # Renomeia para um nome padrão, mantendo a extensão original
         NEW_NAME="narratium-linux-arm64$(echo $ARTIFACT_FILE | grep -o '\\..*')"
         mv "$ARTIFACT_FILE" "dist/$NEW_NAME"
+
     - name: Upload Linux artifact
       uses: actions/upload-artifact@v4
       with:
@@ -64,72 +80,25 @@ jobs:
         path: dist/*
         retention-days: 30
 
-  # --- JOB 2: Compilar PWA para Android ---
-  build-android-pwa:
-    name: Build PWA for Android
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '20'
-    - name: Setup Java 17
-      uses: actions/setup-java@v3
-      with:
-        distribution: 'temurin'
-        java-version: '17'
-    - name: Install pnpm
-      uses: pnpm/action-setup@v2
-      with:
-        version: 8
-        run_install: false
-    - name: Get pnpm store directory
-      shell: bash
-      run: |
-        echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-    - uses: actions/cache@v3
-      with:
-        path: ${{ env.STORE_PATH }}
-        key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-        restore-keys: |
-          ${{ runner.os }}-pnpm-store-
-    - name: Install dependencies
-      run: pnpm install
-    - name: Build PWA
-      run: pnpm build:pwa
-    - name: Install Bubblewrap CLI
-      run: npm install -g @bubblewrap/cli
-
-    # --- CORREÇÃO FINAL APLICADA ---
-    - name: Package PWA into Android App Bundle
-      run: yes | bubblewrap build --manifest ./out/manifest.json --skipSigning
-
-    - name: Upload Android artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: Narratium-android
-        path: app-release-bundle.aab
-        retention-days: 30
-
-  # --- JOB 3: Criar a Release no GitHub ---
+  # --- JOB: Criar a Release no GitHub ---
   release:
     name: Create Release
-    needs: [build-linux-arm64, build-android-pwa]
+    needs: build-linux-arm64 # Depende apenas do job de build do Linux
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+
       - name: Display structure of downloaded files
         run: ls -R artifacts
+
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            artifacts/Narratium-linux-arm64/*
-            artifacts/Narratium-android/app-release-bundle.aab
+          # Anexa apenas o artefato do Linux à release
+          files: artifacts/Narratium-linux-arm64/*
           draft: false
           prerelease: false
