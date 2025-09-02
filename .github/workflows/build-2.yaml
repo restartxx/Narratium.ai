@@ -9,7 +9,7 @@ jobs:
   # --- JOB 1: Compilar para Linux ARM64 ---
   build-linux-arm64:
     name: Build Linux (arm64/aarch64)
-    runs-on: ubuntu-latest # Roda em um runner Linux padrão
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
 
@@ -23,7 +23,6 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
     
-    # Adiciona o alvo de compilação cruzada para ARM64
     - name: Setup Rust Cross-Compile Target (aarch64)
       run: rustup target add aarch64-unknown-linux-gnu
 
@@ -55,22 +54,22 @@ jobs:
     - name: Install Pake CLI
       run: npm install -g pake-cli
 
-    # Compila com Pake especificando o alvo aarch64
     - name: Build with Pake (Linux aarch64)
       run: pake out/index.html --name Narratium --icon public/icon.png --target aarch64-unknown-linux-gnu
 
     - name: Package artifacts (Linux aarch64)
       run: |
         mkdir -p dist
-        # Pake para aarch64 geralmente gera um .deb ou AppImage
         ARTIFACT_FILE=$(find . -name "Narratium*.deb" -o -name "Narratium*.AppImage" | head -n 1)
         if [ -z "$ARTIFACT_FILE" ]; then
           echo "Erro: Arquivo .deb ou .AppImage não encontrado."
+          ls -R
           exit 1
         fi
         echo "Artefato encontrado: $ARTIFACT_FILE"
-        # Renomeia para um nome padrão para a release
-        mv "$ARTIFACT_FILE" dist/narratium-linux-arm64${ARTIFACT_FILE##*.}
+        # Renomeia para um nome padrão para a release, mantendo a extensão original
+        NEW_NAME="narratium-linux-arm64$(echo $ARTIFACT_FILE | grep -o '\\..*')"
+        mv "$ARTIFACT_FILE" "dist/$NEW_NAME"
 
     - name: Upload Linux artifact
       uses: actions/upload-artifact@v4
@@ -91,12 +90,12 @@ jobs:
       with:
         node-version: '20'
 
-    # O build do Android requer Java
-    - name: Setup Java
+    # CORREÇÃO: Altera a versão do Java para 17
+    - name: Setup Java 17
       uses: actions/setup-java@v3
       with:
         distribution: 'temurin'
-        java-version: '11'
+        java-version: '17'
 
     - name: Install pnpm
       uses: pnpm/action-setup@v2
@@ -104,7 +103,6 @@ jobs:
         version: 8
         run_install: false
     
-    # Cache e instalação de dependências
     - name: Get pnpm store directory
       shell: bash
       run: |
@@ -118,32 +116,28 @@ jobs:
     - name: Install dependencies
       run: pnpm install
 
-    # Executa o seu comando de build para o PWA
     - name: Build PWA
-      run: pnpm build:pwa # Assumindo que isso gera os arquivos em um diretório 'dist' ou 'build'
+      run: pnpm build:pwa
 
-    # Instala o Bubblewrap para empacotar o PWA
     - name: Install Bubblewrap CLI
       run: npm install -g @bubblewrap/cli
 
-    # Empacota o PWA em um app Android (.aab)
-    # NOTA: Ajuste o caminho para o seu manifest.json se for diferente
+    # CORREÇÃO: Executa o bubblewrap de forma não interativa.
+    # O comando `yes` responde 'sim' para qualquer prompt que possa surgir.
     - name: Package PWA into Android App Bundle
-      run: bubblewrap build --manifest ./dist/manifest.json --skipSigning
-      # --skipSigning gera um .aab que precisa ser assinado antes de enviar à Play Store.
-      # Para automação completa, você precisaria configurar o keystore no GitHub Secrets.
+      run: yes | bubblewrap build --manifest ./dist/manifest.json --skipSigning
 
     - name: Upload Android artifact
       uses: actions/upload-artifact@v4
       with:
         name: Narratium-android
-        path: app-release-bundle.aab # Nome do arquivo gerado pelo Bubblewrap
+        path: app-release-bundle.aab
         retention-days: 30
 
   # --- JOB 3: Criar a Release no GitHub ---
   release:
     name: Create Release
-    needs: [build-linux-arm64, build-android-pwa] # Depende dos dois jobs anteriores
+    needs: [build-linux-arm64, build-android-pwa]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
