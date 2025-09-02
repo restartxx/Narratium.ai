@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  # --- JOB 1: Compilar para Linux ARM64 (sem alterações) ---
+  # --- JOB 1: Compilar para Linux ARM64 ---
   build-linux-arm64:
     name: Build Linux (arm64/aarch64)
     runs-on: ubuntu-latest
@@ -40,7 +40,7 @@ jobs:
     - name: Install dependencies
       run: pnpm install
     - name: Build Next.js app
-      run: pnpm build
+      run: pnpm build # Este comando também gera o diretório 'out'
     - name: Install Pake CLI
       run: npm install -g pake-cli
     - name: Build with Pake (Linux aarch64)
@@ -70,24 +70,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-
     - name: Setup Node.js
       uses: actions/setup-node@v3
       with:
         node-version: '20'
-
     - name: Setup Java 17
       uses: actions/setup-java@v3
       with:
         distribution: 'temurin'
         java-version: '17'
-
     - name: Install pnpm
       uses: pnpm/action-setup@v2
       with:
         version: 8
         run_install: false
-    
     - name: Get pnpm store directory
       shell: bash
       run: |
@@ -100,27 +96,14 @@ jobs:
           ${{ runner.os }}-pnpm-store-
     - name: Install dependencies
       run: pnpm install
-
     - name: Build PWA
       run: pnpm build:pwa
-
-    # --- PASSO DE DEPURAÇÃO ADICIONADO ---
-    - name: Debug - List files after PWA build
-      run: |
-        echo "Procurando pelo manifest.json nos diretórios de build comuns..."
-        ls -R ./dist || echo "Diretório ./dist não encontrado."
-        ls -R ./build || echo "Diretório ./build não encontrado."
-        ls -R ./out || echo "Diretório ./out não encontrado."
-        # Se nenhum for encontrado, lista a raiz como último recurso
-        echo "Listando diretório raiz:"
-        ls -la
-
     - name: Install Bubblewrap CLI
       run: npm install -g @bubblewrap/cli
 
+    # --- CORREÇÃO FINAL APLICADA ---
     - name: Package PWA into Android App Bundle
-      # --- ATENÇÃO: ATUALIZE O CAMINHO ABAIXO COM BASE NO LOG DO PASSO DE DEBUG ---
-      run: yes | bubblewrap build --manifest ./dist/manifest.json --skipSigning
+      run: yes | bubblewrap build --manifest ./out/manifest.json --skipSigning
 
     - name: Upload Android artifact
       uses: actions/upload-artifact@v4
@@ -129,7 +112,7 @@ jobs:
         path: app-release-bundle.aab
         retention-days: 30
 
-  # --- JOB 3: Criar a Release no GitHub (sem alterações) ---
+  # --- JOB 3: Criar a Release no GitHub ---
   release:
     name: Create Release
     needs: [build-linux-arm64, build-android-pwa]
